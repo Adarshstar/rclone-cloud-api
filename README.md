@@ -1,23 +1,18 @@
 # rclone-cloud-api
 
-Long-running public rclone API for Google Drive (`Cloud-to-all-things`).
+Public rclone Remote Control API for Google Drive.
 
-## Current setup (upgraded)
+## Deployed on Render (free tier)
 
-- Each run stays online for **~5 hours 50 minutes** (almost the maximum GitHub allows)
-- New run starts every **6 hours**
-- Public URL via Cloudflare Quick Tunnel (no account needed)
-- Secrets stay private in GitHub Secrets
+- Sleeps when idle (only runs when needed)
+- Wakes automatically on the first request
+- Uses GitHub Secrets + Render environment variables for the token
 
-## How to use
+## Auth
 
-1. Go to **Actions** → latest run
-2. Open the job summary → copy the `https://xxxx.trycloudflare.com` URL
-3. Use Basic Auth:
-   - Username: `admin`
-   - Password: `rclone-api-2026`
+- Username: `admin`
+- Password: `rclone-api-2026` (or the value set in Render env)
 
-Example:
-```bash
-curl -u admin:rclone-api-2026 https://xxxx.trycloudflare.com/core/version
-```
+## GitHub Actions
+
+Still available for temporary long runs (almost 6 hours).
