@@ -1,18 +1,17 @@
-name: Rclone every 4 hours
+name: Rclone every 4 hours + Public API Tunnel
 
 on:
   schedule:
-    # Runs every 4 hours (UTC)
-    - cron: '0 */4 * * *'
-  workflow_dispatch:   # Allows manual trigger
+    - cron: '0 */4 * * *'   # every 4 hours UTC
+  workflow_dispatch:
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 55   # keep alive ~50 min
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install rclone
@@ -20,23 +19,85 @@ jobs:
           curl -fsSL https://rclone.org/install.sh | sudo bash
           rclone version
 
-      - name: Setup rclone config from secret
+      - name: Setup rclone config (from secret)
         run: |
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
 
-      - name: Test connection
+      - name: Test Drive connection
         run: |
-          echo "Testing Cloud-to-all-things remote..."
           rclone lsd "Cloud-to-all-things:" || true
 
-      - name: Create timestamp folder (example action)
+      - name: Install cloudflared (no account needed)
         run: |
-          TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
-          rclone mkdir "Cloud-to-all-things:gh-actions-$TIMESTAMP" || true
-          echo "Created folder: gh-actions-$TIMESTAMP"
+          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+          cloudflared --version
 
-      - name: List recent items
+      - name: Start rclone RC API server
         run: |
-          rclone ls "Cloud-to-all-things:" --max-depth 1
+          # Start rclone remote control API (port 5572)
+          # Basic auth: admin / rclone-api-2026
+          nohup rclone rcd \
+            --rc-addr :5572 \
+            --rc-user admin \
+            --rc-pass rclone-api-2026 \
+            --rc-web-gui-no-open-browser \
+            > /tmp/rclone-rcd.log 2>&1 &
+          echo $! > /tmp/rclone-rcd.pid
+          sleep 3
+          curl -s -u admin:rclone-api-2026 http://127.0.0.1:5572/core/version || echo "rclone rcd starting..."
+
+      - name: Start public tunnel (Cloudflare Quick Tunnel - no login)
+        id: tunnel
+        run: |
+          # Cloudflare Quick Tunnel - no account required
+          nohup cloudflared tunnel --url http://127.0.0.1:5572 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+          echo $! > /tmp/cloudflared.pid
+          
+          # Wait for the public URL to appear
+          echo "Waiting for public tunnel URL..."
+          for i in $(seq 1 30); do
+            URL=$(grep -o 'https://[a-zA-Z0-9.-]*\.trycloudflare.com' /tmp/cloudflared.log | head -1 || true)
+            if [ -n "$URL" ]; then
+              echo "PUBLIC_URL=$URL" >> $GITHUB_ENV
+              echo "### Public API URL" >> $GITHUB_STEP_SUMMARY
+              echo "**$URL**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Auth: admin / rclone-api-2026" >> $GITHUB_STEP_SUMMARY
+              echo "URL found: $URL"
+              break
+            fi
+            sleep 2
+          done
+          
+          if [ -z "$URL" ]; then
+            echo "Failed to get tunnel URL. Log:"
+            cat /tmp/cloudflared.log
+            exit 1
+          fi
+
+      - name: Keep API alive and show usage
+        run: |
+          echo "========================================"
+          echo "PUBLIC API is live at:"
+          echo "$PUBLIC_URL"
+          echo ""
+          echo "Basic Auth:"
+          echo "  Username: admin"
+          echo "  Password: rclone-api-2026"
+          echo ""
+          echo "Example commands:"
+          echo "  curl -u admin:rclone-api-2026 $PUBLIC_URL/core/version"
+          echo "  curl -u admin:rclone-api-2026 -X POST $PUBLIC_URL/operations/list -d 'fs=Cloud-to-all-things:' -d 'remote='"
+          echo "========================================"
+          
+          # Keep the job running for ~45 minutes so the tunnel stays up
+          # (GitHub free runners allow up to 6h, we limit to 55 min total)
+          echo "Keeping tunnel alive for 45 minutes..."
+          sleep 2700
+          
+          echo "Shutting down..."
+          kill $(cat /tmp/cloudflared.pid) 2>/dev/null || true
+          kill $(cat /tmp/rclone-rcd.pid) 2>/dev/null || true

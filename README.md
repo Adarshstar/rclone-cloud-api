@@ -1,17 +1,33 @@
 # rclone-cloud-api
 
-Scheduled rclone runner for Google Drive (Cloud-to-all-things remote).
+Scheduled rclone runner + temporary public API for Google Drive (`Cloud-to-all-things`).
 
-- Runs every 4 hours via GitHub Actions
-- Uses GitHub Secrets for the rclone config (token is never stored in the repo)
-- Public repository
+## Features
+
+- Runs every 4 hours (or manually)
+- Starts `rclone rcd` (Remote Control API)
+- Exposes it publicly using **Cloudflare Quick Tunnel** (no account / no login required)
+- Public URL appears in the Actions log and job summary
+- Secrets are stored only in GitHub Secrets (never in the repo)
 
 ## Secrets required
 
-| Secret name     | Description                          |
-|-----------------|--------------------------------------|
-| `RCLONE_CONF`   | Full content of `rclone.conf`        |
+| Secret        | Description                     |
+|---------------|---------------------------------|
+| `RCLONE_CONF` | Full content of rclone.conf     |
 
-## Manual trigger
+## How to use the temporary public API
 
-Go to **Actions** → **Rclone every 4 hours** → **Run workflow**
+1. Go to **Actions** → latest run → open the job
+2. Look in the job summary or the "Keep API alive" step for the URL  
+   (looks like `https://xxxx.trycloudflare.com`)
+3. Use Basic Auth:
+   - Username: `admin`
+   - Password: `rclone-api-2026`
+
+Example:
+```bash
+curl -u admin:rclone-api-2026 https://xxxx.trycloudflare.com/core/version
+```
+
+The public URL is only alive while the GitHub Actions job is running (~45 minutes).
