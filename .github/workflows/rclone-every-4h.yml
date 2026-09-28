@@ -1,0 +1,42 @@
+name: Rclone every 4 hours
+
+on:
+  schedule:
+    # Runs every 4 hours (UTC)
+    - cron: '0 */4 * * *'
+  workflow_dispatch:   # Allows manual trigger
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install rclone
+        run: |
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+          rclone version
+
+      - name: Setup rclone config from secret
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+          chmod 600 ~/.config/rclone/rclone.conf
+
+      - name: Test connection
+        run: |
+          echo "Testing Cloud-to-all-things remote..."
+          rclone lsd "Cloud-to-all-things:" || true
+
+      - name: Create timestamp folder (example action)
+        run: |
+          TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
+          rclone mkdir "Cloud-to-all-things:gh-actions-$TIMESTAMP" || true
+          echo "Created folder: gh-actions-$TIMESTAMP"
+
+      - name: List recent items
+        run: |
+          rclone ls "Cloud-to-all-things:" --max-depth 1
